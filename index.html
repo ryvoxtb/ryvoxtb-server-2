@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <title>Live TV Player</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body style="background:black; display:flex; align-items:center; justify-content:center; height:100vh;">
+  <video id="video" controls autoplay style="width:80%; border-radius:10px; box-shadow:0 0 15px #00ff88;"></video>
+
+  <script>
+    const video = document.getElementById('video');
+    const videoSrc = 'http://localhost:3000/live-tv';
+
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(videoSrc);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        video.play();
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari browser
+      video.src = videoSrc;
+      video.play();
+    } else {
+      alert('Your browser does not support HLS playback.');
+    }
+  </script>
+</body>
+</html>
