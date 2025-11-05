@@ -4,26 +4,26 @@ const cors = require("cors");
 const https = require("https");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
+// HTTPS Agent to ignore self-signed SSL errors (optional)
 const agent = new https.Agent({ rejectUnauthorized: false });
 
-// CHANNELS অবজেক্টে তুমি নতুন চ্যানেল যোগ করবে এখানে
-// key: চ্যানেলের route name, value: মূল m3u8 URL
+// CHANNELS অবজেক্টে তোমার স্ট্রিম URL গুলো রাখবে
 const CHANNELS = {
   atb: "https://cd198.anystream.uk:8082/hls/atbla85tv/index.m3u8",
   ekushey: "https://ekusheyserver.com/hls-live/livepkgr/_definst_/liveevent/livestream2.m3u8",
-   // আরো যোগ করো ইচ্ছামতো
+  // এখানে চাইলে নতুন চ্যানেল যোগ করো
 };
 
-// হেল্পার ফাংশন: URL থেকে বেস path বের করার জন্য
+// Helper: URL থেকে base path বের করার ফাংশন
 function getBaseUrl(url) {
   return url.substring(0, url.lastIndexOf("/") + 1);
 }
 
-// Main manifest proxy রুট
+// মেইন ম্যানিফেস্ট প্রোক্সি
 app.get("/live-tv/:channel", async (req, res) => {
   const key = req.params.channel;
   let url = req.query.url || CHANNELS[key];
@@ -35,9 +35,9 @@ app.get("/live-tv/:channel", async (req, res) => {
     const response = await axios.get(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "*/*",
-        "Referer": new URL(url).origin,
-        "Origin": new URL(url).origin,
+        Accept: "*/*",
+        Referer: new URL(url).origin,
+        Origin: new URL(url).origin,
       },
       httpsAgent: agent,
       maxRedirects: 5,
@@ -47,7 +47,7 @@ app.get("/live-tv/:channel", async (req, res) => {
     let data = response.data;
     const base = getBaseUrl(url);
 
-    // মাস্টার ম্যানিফেস্ট ও সাব ম্যানিফেস্ট রিরাইট করা
+    // সাব-ম্যানিফেস্ট লিঙ্ক রিরাইট
     data = data.replace(/^(?!#)(.*\.m3u8.*)$/gm, (match, p1) => {
       if (p1.startsWith("http")) {
         return `/live-tv/${key}?url=${encodeURIComponent(p1)}`;
@@ -55,7 +55,7 @@ app.get("/live-tv/:channel", async (req, res) => {
       return `/live-tv/${key}?url=${encodeURIComponent(base + p1)}`;
     });
 
-    // সেগমেন্ট লিঙ্ক রিরাইট (.ts, .m4s, .aac, .mp4)
+    // সেগমেন্ট ফাইল রিরাইট (.ts, .m4s, .aac, .mp4)
     data = data.replace(/^(?!#)(.*\.(ts|m4s|aac|mp4).*)$/gm, (match, p1) => {
       if (p1.startsWith("http")) {
         return `/segment/${key}?url=${encodeURIComponent(p1)}`;
@@ -85,11 +85,11 @@ app.get("/segment/:channel", async (req, res) => {
       responseType: "stream",
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Referer": new URL(url).origin,
-        "Origin": new URL(url).origin,
-        "Accept": "*/*",
-        "Connection": "keep-alive",
-        "Range": req.headers.range || "bytes=0-",
+        Referer: new URL(url).origin,
+        Origin: new URL(url).origin,
+        Accept: "*/*",
+        Connection: "keep-alive",
+        Range: req.headers.range || "bytes=0-",
       },
       httpsAgent: agent,
     });
@@ -110,7 +110,7 @@ app.get("/segment/:channel", async (req, res) => {
   }
 });
 
-// প্লেয়ার পেজ
+// প্লেয়ার পেজ রুট
 app.get("/player/:channel", (req, res) => {
   const ch = req.params.channel;
   if (!CHANNELS[ch]) return res.status(404).send("Channel not found");
@@ -130,7 +130,7 @@ app.get("/player/:channel", (req, res) => {
     <body>
       <video id="video" controls autoplay muted></video>
       <script>
-        const src = 'http://localhost:${PORT}/live-tv/${ch}';
+        const src = window.location.origin + '/live-tv/${ch}';
         const video = document.getElementById('video');
         if (Hls.isSupported()) {
           const hls = new Hls({ debug: false });
