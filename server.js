@@ -5,10 +5,10 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS সক্রিয় করা হয়েছে যাতে যেকোনো ওয়েবসাইট থেকে আপনার প্রক্সি ব্যবহার করা যায়
+// CORS সক্রিয় করা হয়েছে
 app.use(cors());
 
-// --- ভিডিও প্রক্সি রুট ---
+// --- ভিডিও প্রক্সি রুট (Manifest Rewrite সহ) ---
 app.get('/proxy-media', async (req, res) => {
     const mediaUrl = req.query.url;
 
@@ -22,11 +22,11 @@ app.get('/proxy-media', async (req, res) => {
         const response = await axios.get(mediaUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                // আসল সার্ভারের নিরাপত্তা পাস করার জন্য Referer এবং Origin পাঠানো
+                // সার্ভারের নিরাপত্তা পাস করার জন্য Referer এবং Origin পাঠানো
                 'Referer': mediaUrl, 
                 'Origin': new URL(mediaUrl).origin,
             },
-            // ডেটা সঠিকভাবে হ্যান্ডেল করার জন্য 'arraybuffer' ব্যবহার করা হয়েছে
+            // ডেটা Buffer/ArrayBuffer হিসেবে আনা হচ্ছে
             responseType: 'arraybuffer', 
             maxRedirects: 5, 
             timeout: 30000,
@@ -36,17 +36,15 @@ app.get('/proxy-media', async (req, res) => {
         const contentType = response.headers['content-type'] || '';
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Content-Type', contentType);
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate'); // HLS এর জন্য ক্যাশিং বন্ধ করা
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate'); 
 
         // ১. HLS ম্যানিফেস্ট সনাক্ত করা
         if (contentType.includes('application/vnd.apple.mpegurl') || 
             contentType.includes('application/x-mpegurl') || 
             mediaUrl.endsWith('.m3u8')) {
             
-            // ডেটা Buffer থেকে স্ট্রিং-এ রূপান্তর করা
             let manifestText = response.data.toString('utf8');
             
-            // #EXTM3U ডিলিমিটার চেক করা (যদি ফাঁকা ডেটা আসে তবে ত্রুটি এড়ানো)
             if (!manifestText || !manifestText.includes('#EXTM3U')) {
                 console.error('[Manifest Error] Invalid or empty manifest received.');
                 return res.status(500).send('Manifest processing error: Invalid HLS format.');
@@ -57,13 +55,12 @@ app.get('/proxy-media', async (req, res) => {
             // প্রক্সি বেস URL তৈরি করা (HTTPS নিশ্চিত করা)
             const proxyBase = `${req.protocol}://${req.get('host')}${req.path}?url=`;
 
-            // ২. Manifest Rewrite লজিক
+            // ২. Manifest Rewrite লজিক: সমস্ত সেগমেন্ট লিংককে প্রক্সি দিয়ে প্রতিস্থাপন করা
             const rewrittenManifest = manifestText.split('\n').map(line => {
                 if (line.startsWith('#')) {
                     return line; // কমেন্ট লাইন অপরিবর্তিত থাকবে
                 }
 
-                // সেগমেন্ট বা সাব-ম্যানিফেস্ট URL/পাথ হলে
                 if (line.trim().length > 0) {
                     let fullUrl = line.trim();
 
@@ -72,7 +69,7 @@ app.get('/proxy-media', async (req, res) => {
                         fullUrl = new URL(fullUrl, baseUrl).href;
                     }
                     
-                    // সমস্ত সেগমেন্ট URL-কে প্রক্সি দিয়ে মুড়ে দেওয়া
+                    // সেগমেন্ট URL-কে প্রক্সি দিয়ে মুড়ে দেওয়া
                     const proxiedLine = proxyBase + encodeURIComponent(fullUrl);
                     return proxiedLine;
                 }
