@@ -16,7 +16,7 @@ app.get('/proxy-media', async (req, res) => {
         return res.status(400).send('Missing url parameter');
     }
 
-    console.log('[Proxy] Fetching media from:', mediaUrl);
+    console.log(`[Proxy] Requesting: ${mediaUrl}`); // এই লাইনটি প্রতিটি রিকোয়েস্ট দেখাবে
 
     try {
         const response = await axios.get(mediaUrl, {
@@ -36,29 +36,19 @@ app.get('/proxy-media', async (req, res) => {
         const contentType = response.headers['content-type'] || '';
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Content-Type', contentType);
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate'); 
 
-        // ১. HLS ম্যানিফেস্ট সনাক্ত করা
-        if (contentType.includes('application/vnd.apple.mpegurl') || 
-            contentType.includes('application/x-mpegurl') || 
-            mediaUrl.endsWith('.m3u8')) {
-            
-            let manifestText = response.data.toString('utf8');
-            
-            if (!manifestText || !manifestText.includes('#EXTM3U')) {
-                console.error('[Manifest Error] Invalid or empty manifest received.');
-                return res.status(500).send('Manifest processing error: Invalid HLS format.');
-            }
+        // ১. HLS ম্যানিফেস্ট ফাইল শনাক্ত করা
+        const isM3U8 = contentType.includes('application/vnd.apple.mpegurl') || mediaUrl.toLowerCase().endsWith('.m3u8');
+        
+        // ২. যদি HLS ম্যানিফেস্ট হয়, তবে তার ভেতরের URL পরিবর্তন করা
+        if (isM3U8) {
+            const manifest = Buffer.from(response.data).toString('utf-8');
+            const baseUrl = new URL(mediaUrl).href;
+            const proxyBase = req.protocol + '://' + req.get('host') + '/proxy-media?url=';
 
-            const baseUrl = mediaUrl.substring(0, mediaUrl.lastIndexOf('/') + 1);
-            
-            // প্রক্সি বেস URL তৈরি করা (HTTPS নিশ্চিত করা)
-            const proxyBase = `${req.protocol}://${req.get('host')}${req.path}?url=`;
-
-            // ২. Manifest Rewrite লজিক: সমস্ত সেগমেন্ট লিংককে প্রক্সি দিয়ে প্রতিস্থাপন করা
-            const rewrittenManifest = manifestText.split('\n').map(line => {
+            const rewrittenManifest = manifest.split('\n').map(line => {
                 if (line.startsWith('#')) {
-                    return line; // কমেন্ট লাইন অপরিবর্তিত থাকবে
+                    return line; // ট্যাগ (Tag) অপরিবর্তিত রাখা
                 }
 
                 if (line.trim().length > 0) {
@@ -86,21 +76,23 @@ app.get('/proxy-media', async (req, res) => {
         }
 
     } catch (error) {
-        if (error.response) {
-            console.error(`Error proxying media (Status ${error.response.status}):`, error.message);
-            return res.status(error.response.status).send(`Error from origin server: ${error.response.statusText}`);
+        if (axios.isAxiosError(error) && error.response) {
+            // সোর্স সার্ভার থেকে প্রাপ্ত ত্রুটি কোড
+            const status = error.response.status;
+            console.error(`❌ Error proxying media (Status ${status}): Source URL: ${mediaUrl}`);
+            // ক্লায়েন্টকে সেই ত্রুটি কোড ফরোয়ার্ড করা
+            return res.status(status).send(`Error from origin server: ${error.response.statusText}`);
         } else {
-            console.error('Network or Proxy Error:', error.message);
+            console.error('❌ Network or Proxy Error:', error.message);
             res.status(500).send('Failed to proxy media due to internal network error');
         }
     }
 });
 
-// রুট হ্যান্ডেলার
-app.get('/', (req, res) => {
-    res.send('HLS Proxy server is running successfully!');
-});
+// রুট হ্যান্ডেলার - index.html লোড করার জন্য
+app.use(express.static('public')); // যদি index.html টিকে public ফোল্ডারে রাখেন
 
+// সার্ভার চালু করা
 app.listen(PORT, () => {
-    console.log(`Proxy server running on port ${PORT}`);
+    console.log(`✅ HLS Proxy server running on http://localhost:${PORT}`);
 });
